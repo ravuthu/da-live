@@ -99,7 +99,7 @@ export function getAssetUrl({ prodOrigin, dmDeliveryEnabled, asset, name }) {
     return `https://${prodOrigin}${asset.path}`;
   }
   const base = getBaseDmUrl(prodOrigin, asset);
-  const seg = asset.mimetype?.startsWith('video/') ? '/original' : '';
+  const seg = asset.mimetype?.startsWith('image/') ? '' : '/original';
   return `${base}${seg}/as/${name || asset.name}`;
 }
 
@@ -204,7 +204,11 @@ export function extractAssetMetadata(asset) {
 // eslint-disable-next-line max-len
 export function isAssetApprovedForDelivery({ dmDeliveryEnabled, isAuthorRepo, activationTarget, status }) {
   if (!dmDeliveryEnabled || !isAuthorRepo) return true;
-  return activationTarget === 'delivery' || status === 'approved';
+  // When activationTarget is explicitly set, only 'delivery' means the asset
+  // is on the delivery CDN. Other targets (e.g. 'contenthub') would 404.
+  if (activationTarget) return activationTarget === 'delivery';
+  // Fall back to status when no activationTarget is present
+  return status === 'approved';
 }
 
 // --- Smart Crop Helpers ---
@@ -282,5 +286,13 @@ export function resolveStandardAssetSrc({ aemTierType, mimetype, asset, prodOrig
     return renditionLinks?.find((link) => link.href.endsWith('/play'))?.href;
   }
 
-  return renditionLinks?.[0]?.href.split('?')[0];
+  // For images, use the first rendition link from the delivery tier
+  if (mimetype?.startsWith('image/')) {
+    return renditionLinks?.[0]?.href.split('?')[0];
+  }
+
+  // For non-image, non-video documents (PDF, CSV, etc.), construct the
+  // delivery URL directly. Rendition links for documents point to thumbnail
+  // images rather than the actual document.
+  return getAssetUrl({ prodOrigin, dmDeliveryEnabled, asset });
 }

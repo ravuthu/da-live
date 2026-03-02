@@ -241,6 +241,7 @@ describe('da-assets helpers', () => {
     const asset = {
       name: 'photo.jpg',
       path: '/content/dam/images/photo.jpg',
+      mimetype: 'image/jpeg',
       'repo:id': 'abc-123',
     };
 
@@ -253,7 +254,7 @@ describe('da-assets helpers', () => {
       expect(url).to.equal('https://publish-p12345-e67890.adobeaemcloud.com/content/dam/images/photo.jpg');
     });
 
-    it('returns DM delivery URL when DM delivery is enabled', () => {
+    it('returns DM delivery URL without /original for images', () => {
       const url = getAssetUrl({
         prodOrigin: 'delivery-p12345-e67890.adobeaemcloud.com',
         dmDeliveryEnabled: true,
@@ -272,6 +273,40 @@ describe('da-assets helpers', () => {
         asset: videoAsset,
       });
       expect(url).to.include('/original/as/photo.jpg');
+    });
+
+    it('includes /original segment for PDF assets', () => {
+      const pdfAsset = { ...asset, name: 'report.pdf', mimetype: 'application/pdf' };
+      const url = getAssetUrl({
+        prodOrigin: 'delivery-p12345-e67890.adobeaemcloud.com',
+        dmDeliveryEnabled: true,
+        asset: pdfAsset,
+      });
+      expect(url).to.equal(
+        'https://delivery-p12345-e67890.adobeaemcloud.com/adobe/assets/abc-123/original/as/report.pdf',
+      );
+    });
+
+    it('includes /original segment for CSV assets', () => {
+      const csvAsset = { ...asset, name: 'data.csv', mimetype: 'text/csv' };
+      const url = getAssetUrl({
+        prodOrigin: 'delivery-p12345-e67890.adobeaemcloud.com',
+        dmDeliveryEnabled: true,
+        asset: csvAsset,
+      });
+      expect(url).to.equal(
+        'https://delivery-p12345-e67890.adobeaemcloud.com/adobe/assets/abc-123/original/as/data.csv',
+      );
+    });
+
+    it('includes /original when mimetype is undefined', () => {
+      const noMimeAsset = { name: 'file.bin', path: '/dam/file.bin', 'repo:id': 'abc-123' };
+      const url = getAssetUrl({
+        prodOrigin: 'delivery-p12345-e67890.adobeaemcloud.com',
+        dmDeliveryEnabled: true,
+        asset: noMimeAsset,
+      });
+      expect(url).to.include('/original/as/file.bin');
     });
 
     it('uses custom name when provided', () => {
@@ -499,7 +534,7 @@ describe('da-assets helpers', () => {
       })).to.be.true;
     });
 
-    it('returns true when status is "approved"', () => {
+    it('returns true when status is "approved" and no activationTarget', () => {
       expect(isAssetApprovedForDelivery({
         dmDeliveryEnabled: true,
         isAuthorRepo: true,
@@ -508,7 +543,7 @@ describe('da-assets helpers', () => {
       })).to.be.true;
     });
 
-    it('returns false when DM enabled, author repo, and asset not approved or targeted', () => {
+    it('returns false when no activationTarget and status is not approved', () => {
       expect(isAssetApprovedForDelivery({
         dmDeliveryEnabled: true,
         isAuthorRepo: true,
@@ -517,11 +552,29 @@ describe('da-assets helpers', () => {
       })).to.be.false;
     });
 
-    it('returns false when status is "draft" on author repo with DM', () => {
+    it('returns false when activationTarget is "contenthub" (not on delivery CDN)', () => {
+      expect(isAssetApprovedForDelivery({
+        dmDeliveryEnabled: true,
+        isAuthorRepo: true,
+        activationTarget: 'contenthub',
+        status: 'approved',
+      })).to.be.false;
+    });
+
+    it('returns false when activationTarget is "preview"', () => {
       expect(isAssetApprovedForDelivery({
         dmDeliveryEnabled: true,
         isAuthorRepo: true,
         activationTarget: 'preview',
+        status: 'approved',
+      })).to.be.false;
+    });
+
+    it('returns false when status is "draft" and no activationTarget', () => {
+      expect(isAssetApprovedForDelivery({
+        dmDeliveryEnabled: true,
+        isAuthorRepo: true,
+        activationTarget: null,
         status: 'draft',
       })).to.be.false;
     });
@@ -772,7 +825,7 @@ describe('da-assets helpers', () => {
       expect(src).to.be.undefined;
     });
 
-    it('handles missing mimetype gracefully', () => {
+    it('handles missing mimetype by constructing delivery URL with /original', () => {
       const src = resolveStandardAssetSrc({
         aemTierType: 'delivery',
         mimetype: undefined,
@@ -780,8 +833,76 @@ describe('da-assets helpers', () => {
         prodOrigin: 'delivery-p123-e456.adobeaemcloud.com',
         dmDeliveryEnabled: true,
       });
-      // Falls through to rendition URL since mimetype?.startsWith('video/') is falsy
-      expect(src).to.equal('https://cdn.example.com/rendition1');
+      // Falls through to getAssetUrl; undefined mimetype gets /original
+      expect(src).to.equal(
+        'https://delivery-p123-e456.adobeaemcloud.com/adobe/assets/asset-456/original/as/photo.jpg',
+      );
+    });
+
+    it('returns delivery URL with /original for PDF instead of thumbnail', () => {
+      const pdfAsset = {
+        name: 'report.pdf',
+        path: '/content/dam/docs/report.pdf',
+        'repo:id': 'pdf-789',
+        _links: {
+          'http://ns.adobe.com/adobecloud/rel/rendition': [
+            { href: 'https://cdn.example.com/thumbnail.png?width=140' },
+          ],
+        },
+      };
+      const src = resolveStandardAssetSrc({
+        aemTierType: 'delivery',
+        mimetype: 'application/pdf',
+        asset: pdfAsset,
+        prodOrigin: 'delivery-p123-e456.adobeaemcloud.com',
+        dmDeliveryEnabled: true,
+      });
+      expect(src).not.to.include('thumbnail');
+      expect(src).to.equal(
+        'https://delivery-p123-e456.adobeaemcloud.com/adobe/assets/pdf-789/original/as/report.pdf',
+      );
+    });
+
+    it('returns delivery URL with /original for CSV instead of thumbnail', () => {
+      const csvAsset = {
+        name: 'data.csv',
+        path: '/content/dam/data/data.csv',
+        'repo:id': 'csv-101',
+        _links: {
+          'http://ns.adobe.com/adobecloud/rel/rendition': [
+            { href: 'https://cdn.example.com/thumbnail.png' },
+          ],
+        },
+      };
+      const src = resolveStandardAssetSrc({
+        aemTierType: 'delivery',
+        mimetype: 'text/csv',
+        asset: csvAsset,
+        prodOrigin: 'delivery-p123-e456.adobeaemcloud.com',
+        dmDeliveryEnabled: true,
+      });
+      expect(src).not.to.include('thumbnail');
+      expect(src).to.equal(
+        'https://delivery-p123-e456.adobeaemcloud.com/adobe/assets/csv-101/original/as/data.csv',
+      );
+    });
+
+    it('returns publish path for PDF when DM delivery is disabled', () => {
+      const pdfAsset = {
+        name: 'report.pdf',
+        path: '/content/dam/docs/report.pdf',
+        'repo:id': 'pdf-789',
+      };
+      const src = resolveStandardAssetSrc({
+        aemTierType: 'delivery',
+        mimetype: 'application/pdf',
+        asset: pdfAsset,
+        prodOrigin: 'publish-p123-e456.adobeaemcloud.com',
+        dmDeliveryEnabled: false,
+      });
+      expect(src).to.equal(
+        'https://publish-p123-e456.adobeaemcloud.com/content/dam/docs/report.pdf',
+      );
     });
   });
 });
