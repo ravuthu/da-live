@@ -38,7 +38,7 @@ The behaviour of the asset selector is determined entirely by the `aem.repositor
 
 - Asset browser shows the full **folder hierarchy** from AEM DAM.
 - Inserted URLs are **DM delivery URLs**: `https://delivery-p…/<basePath>/<id>/as/<name>.avif`
-- Assets must be **approved** (`dam:assetStatus = approved`) and **activated for delivery** (`dam:activationTarget = delivery`) before they can be inserted. Unapproved assets show an error panel.
+- Assets must be **approved** (`dam:assetStatus = approved`) before they can be inserted. If `dam:activationTarget` is present, it must be `delivery`; when absent the asset is still allowed. Unapproved assets show an error panel.
 - When `aem.asset.smartcrop.select = on`, a Smart Crop selection dialog is shown for images.
 
 ### 3. Delivery (DM Open API)
